@@ -31,15 +31,33 @@ GITOPS="$(cd "$(dirname "$0")" && pwd)"
 INFRA="$GITOPS/../cloudkitchen-infra"
 APP="$GITOPS/../cloudkitchen-app"
 
+# GitHub org that hosts the 3 repos (override with GIT_ORG=... ./deploy.sh).
+GIT_ORG="${GIT_ORG:-Cloudkitchen007}"
+
 echo "Preflight checks..."
-for t in terraform aws kubectl docker npm; do command -v "$t" >/dev/null || { echo "ERROR: $t not installed."; exit 1; }; done
+for t in terraform aws kubectl docker npm git; do command -v "$t" >/dev/null || { echo "ERROR: $t not installed."; exit 1; }; done
 docker info >/dev/null 2>&1 || { echo "ERROR: Docker is not running."; exit 1; }
-aws sts get-caller-identity >/dev/null 2>&1 || { echo "ERROR: AWS credentials not configured."; exit 1; }
-[ -d "$INFRA" ] || { echo "ERROR: sibling repo not found: $INFRA (clone all 3 repos side by side)."; exit 1; }
-[ -d "$APP" ]   || { echo "ERROR: sibling repo not found: $APP."; exit 1; }
-[ -f "$INFRA/terraform.tfvars" ] || { echo "ERROR: $INFRA/terraform.tfvars missing (gitignored; holds hf_api_token, key_name)."; exit 1; }
-grep -q "<YOUR-ORG>" "$GITOPS/argocd/application.yaml" && \
-  echo "WARNING: argocd/application.yaml still has <YOUR-ORG>. Set repoURL to your cloudkitchen-gitops repo (and push it) so ArgoCD can sync."
+aws sts get-caller-identity >/dev/null 2>&1 || { echo "ERROR: AWS credentials not configured (run 'aws configure')."; exit 1; }
+
+# --- Auto-clone the sibling repos if missing (so this works on a fresh laptop) -
+clone_if_missing() {
+  [ -d "$2" ] || { echo "Cloning $1 → $2"; git clone "https://github.com/$GIT_ORG/$1.git" "$2"; }
+}
+clone_if_missing cloudkitchen-infra "$INFRA"
+clone_if_missing cloudkitchen-app   "$APP"
+
+# --- Ensure terraform.tfvars exists (gitignored secrets). Generate it from env -
+# vars on a fresh machine: HF_API_TOKEN is required; SLACK_WEBHOOK_URL optional.
+if [ ! -f "$INFRA/terraform.tfvars" ]; then
+  [ -n "${HF_API_TOKEN:-}" ] || { echo "ERROR: no $INFRA/terraform.tfvars and HF_API_TOKEN env var not set.
+  Set it once:  export HF_API_TOKEN=hf_xxx   (free token: huggingface.co/settings/tokens)
+  Optional:     export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...  (for alerts)"; exit 1; }
+  echo "Generating $INFRA/terraform.tfvars from env vars..."
+  {
+    echo "hf_api_token = \"$HF_API_TOKEN\""
+    [ -n "${SLACK_WEBHOOK_URL:-}" ] && echo "slack_webhook_url = \"$SLACK_WEBHOOK_URL\""
+  } > "$INFRA/terraform.tfvars"
+fi
 
 # ensure helm
 if ! command -v helm >/dev/null 2>&1 && [ ! -x "$HOME/bin/helm.exe" ]; then
@@ -87,10 +105,8 @@ bash "$GITOPS/wire-cloudfront.sh"
 
 echo ""
 echo "======================================================================"
-echo "DONE. Access the whole app at the CloudFront URL (give CloudFront a few"
-echo "minutes to deploy the new origin after the second apply):"
-echo "  APP:     https://$(terraform -chdir="$INFRA" output -raw cloudfront_url)"
-echo "  ArgoCD:  http://\$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-echo "  Grafana: http://\$(kubectl -n monitoring get svc kube-prometheus-stack-grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-echo "  Pods:    kubectl get pods -n production"
+echo "DONE. (CloudFront takes a few minutes to deploy the new origin.)"
+echo "All access links + credentials below — re-print anytime with: bash links.sh"
 echo "======================================================================"
+# Single source of truth for every URL + credential.
+bash "$GITOPS/links.sh"
