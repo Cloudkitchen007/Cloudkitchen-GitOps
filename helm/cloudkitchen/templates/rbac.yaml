@@ -1,0 +1,28 @@
+# Least-privilege RBAC: the app service accounts may only read ConfigMaps in
+# their own namespace — nothing cluster-wide, no secrets write, no pod exec.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cloudkitchen-app-role
+  labels:
+    {{- include "cloudkitchen.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cloudkitchen-app-rolebinding
+  labels:
+    {{- include "cloudkitchen.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: cloudkitchen-default
+  - kind: ServiceAccount
+    name: ai
+roleRef:
+  kind: Role
+  name: cloudkitchen-app-role
+  apiGroup: rbac.authorization.k8s.io

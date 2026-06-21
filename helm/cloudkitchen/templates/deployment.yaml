@@ -1,0 +1,64 @@
+{{- range .Values.services }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .name }}
+  labels:
+    app: {{ .name }}
+    {{- include "cloudkitchen.labels" $ | nindent 4 }}
+spec:
+  replicas: {{ .replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ .name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .name }}
+        {{- include "cloudkitchen.labels" $ | nindent 8 }}
+    spec:
+      # ai uses its IRSA service account (SQS access); others use the default SA.
+      serviceAccountName: {{ .serviceAccount | default "cloudkitchen-default" }}
+      # Pod-level hardening: non-root, no privilege escalation, seccomp.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ .name }}
+          image: {{ include "cloudkitchen.image" (dict "root" $ "svc" .) | quote }}
+          imagePullPolicy: IfNotPresent
+          # Container-level hardening: drop all Linux capabilities, no priv-esc.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: {{ .port }}
+          # Inject shared config + secrets. Each service simply ignores the env
+          # vars it doesn't use (Spring services read SPRING_DATASOURCE_*, the AI
+          # service reads HUGGINGFACEHUB_API_TOKEN / SQS_ORDERS_QUEUE_URL, etc.).
+          envFrom:
+            - configMapRef:
+                name: cloudkitchen-config
+            - secretRef:
+                name: cloudkitchen-secrets
+          # TCP probes — robust across all services without guessing HTTP paths.
+          readinessProbe:
+            tcpSocket:
+              port: {{ .port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: {{ .port }}
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            {{- toYaml $.Values.resources | nindent 12 }}
+---
+{{- end }}

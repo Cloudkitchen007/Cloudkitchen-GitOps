@@ -1,0 +1,23 @@
+# kgateway Gateway — provisions an Envoy proxy + a LoadBalancer Service (→ AWS NLB).
+# This is the single ingress point the CloudFront /api/* and /auth/* origins target.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.gateway.name }}
+  labels:
+    {{- include "cloudkitchen.labels" . | nindent 4 }}
+spec:
+  gatewayClassName: {{ .Values.gateway.className }}
+  # infrastructure.annotations are propagated by kgateway onto the generated
+  # LoadBalancer Service, so the AWS Load Balancer Controller creates an
+  # internet-facing NLB instead of a Classic ELB.
+  infrastructure:
+    annotations:
+      {{- toYaml .Values.gateway.lbAnnotations | nindent 6 }}
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same

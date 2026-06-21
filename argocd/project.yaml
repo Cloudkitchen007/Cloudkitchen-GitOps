@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudkitchen
+  namespace: argocd
+spec:
+  description: CloudKitchen backend microservices
+  sourceRepos:
+    - "*"            # tighten to your GitOps repo URL once you split it out
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: production
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

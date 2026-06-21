@@ -1,0 +1,40 @@
+# kube-prometheus-stack values for CloudKitchen
+# Installs Prometheus + Grafana + node-exporter + kube-state-metrics with
+# out-of-the-box Kubernetes dashboards. Grafana is exposed via a public NLB so
+# the dashboard is reachable from any laptop (no port-forward / localhost).
+
+grafana:
+  # Public link (AWS NLB) — shareable for the demo.
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+  adminPassword: "cloudkitchen-admin" # demo only — rotate for real use
+  defaultDashboardsEnabled: true      # K8s cluster/node/pod dashboards
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+prometheus:
+  prometheusSpec:
+    retention: 6h # keep it light for a small cluster
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+    # Auto-discover ServiceMonitors in all namespaces (so app /metrics can be added later)
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+# Trim components to fit a small node group
+alertmanager:
+  enabled: false
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi

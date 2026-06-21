@@ -1,0 +1,8 @@
+# Helm
+charts/
+*.tgz
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

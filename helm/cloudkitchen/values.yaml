@@ -1,0 +1,86 @@
+# =============================================================================
+# CloudKitchen Helm values
+# =============================================================================
+
+global:
+  region: ap-south-1
+  accountId: "256603361470"
+  ecrRegistry: "256603361470.dkr.ecr.ap-south-1.amazonaws.com"
+  imageTag: latest
+
+# Non-secret config → rendered into the `cloudkitchen-config` ConfigMap and
+# injected into every pod via envFrom. (Secrets live in `cloudkitchen-secrets`,
+# created out-of-band — see README §4.)
+# Only STATIC config lives here (safe to commit, never changes per deploy).
+# All per-deploy / environment-specific values — DB creds, Cognito pool & client
+# IDs (these REGENERATE on every destroy/recreate), SQS URL, HF token — are
+# injected at deploy time into the out-of-band Secret `cloudkitchen-secrets` by
+# bootstrap/load-runtime-config.sh. They are NEVER committed to Git.
+config:
+  hfModel: "mistralai/Mistral-7B-Instruct-v0.3"
+
+# IRSA role ARNs (deterministic: fixed names in a stable account, so safe to
+# commit — they do NOT change on destroy/recreate, unlike Cognito IDs).
+# Created by cloudkitchen-infra/irsa.tf.
+irsa:
+  aiRoleArn:    "arn:aws:iam::256603361470:role/cloudkitchen-ai-irsa"
+  orderRoleArn: "arn:aws:iam::256603361470:role/cloudkitchen-order-irsa"
+  esoRoleArn:   "arn:aws:iam::256603361470:role/cloudkitchen-eso-irsa"
+
+# External Secrets Operator source (AWS Secrets Manager secret names).
+eso:
+  region: ap-south-1
+  appSecretName: "cloudkitchen/app/runtime"         # HF, SQS, Cognito, DB url/user
+  dbSecretName:  "cloudkitchen/db/credentials-new"  # DB password
+
+# The Gateway (kgateway) that fronts all services.
+gateway:
+  name: cloudkitchen-gateway
+  className: kgateway          # the GatewayClass kgateway installs
+  # Annotations propagated to the auto-created LoadBalancer Service.
+  # DEFAULT (no extra setup): the in-tree AWS cloud provider turns this into an
+  # internet-facing NLB. Works out of the box on EKS — no IRSA/controller needed.
+  lbAnnotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+  # PRODUCTION upgrade (optional): install the AWS Load Balancer Controller
+  # (needs OIDC/IRSA) and swap the annotations to:
+  #   service.beta.kubernetes.io/aws-load-balancer-type: "external"
+  #   service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+  #   service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+
+# The 4 backend services. `pathPrefixes` mirror the existing ALB listener rules
+# exactly, so routing behaviour is identical to the EC2 deployment.
+#   order  → /api/orders*           (most specific, evaluated first)
+#   ai     → /api/recommend*, /api/demand*, /api/update_user_preferences*
+#   auth   → /auth/*
+#   menu   → /api  (catch-all; loses to the more specific routes above)
+services:
+  - name: menu
+    repo: cloudkitchen-menu-repo
+    port: 8080
+    replicas: 2
+    pathPrefixes: ["/api"]
+  - name: order
+    repo: cloudkitchen-order-repo
+    port: 8082
+    replicas: 2
+    serviceAccount: order   # IRSA SA → SQS send without static keys
+    pathPrefixes: ["/api/orders"]
+  - name: auth
+    repo: cloudkitchen-auth-repo
+    port: 8001
+    replicas: 2
+    pathPrefixes: ["/auth"]
+  - name: ai
+    repo: cloudkitchen-ai-repo
+    port: 8000
+    replicas: 1
+    serviceAccount: ai   # IRSA SA → SQS access without static keys
+    pathPrefixes: ["/api/recommend", "/api/demand", "/api/update_user_preferences"]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi

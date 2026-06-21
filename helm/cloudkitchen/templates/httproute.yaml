@@ -1,0 +1,28 @@
+{{/*
+One HTTPRoute per service, attached to the shared Gateway.
+Gateway API resolves overlapping prefixes by specificity (longest match wins),
+so /api/orders (order) and /api/recommend (ai) beat the menu catch-all /api.
+*/}}
+{{- range .Values.services }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .name }}-route
+  labels:
+    app: {{ .name }}
+    {{- include "cloudkitchen.labels" $ | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ $.Values.gateway.name }}
+  rules:
+    - matches:
+        {{- range .pathPrefixes }}
+        - path:
+            type: PathPrefix
+            value: {{ . | quote }}
+        {{- end }}
+      backendRefs:
+        - name: {{ .name }}
+          port: {{ .port }}
+---
+{{- end }}
