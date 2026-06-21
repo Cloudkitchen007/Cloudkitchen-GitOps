@@ -6,7 +6,7 @@ global:
   region: ap-south-1
   accountId: "256603361470"
   ecrRegistry: "256603361470.dkr.ecr.ap-south-1.amazonaws.com"
-  imageTag: latest
+  imageTag: "f961f19284c8d6735fdc1467f4fc82472dceebeb"
 
 # Non-secret config → rendered into the `cloudkitchen-config` ConfigMap and
 # injected into every pod via envFrom. (Secrets live in `cloudkitchen-secrets`,
