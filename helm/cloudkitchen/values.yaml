@@ -77,7 +77,17 @@ services:
     replicas: 1
     serviceAccount: ai   # IRSA SA → SQS access without static keys
     disableOtel: true    # ChromaDB clashes with injected OpenTelemetry — opt out
-    pathPrefixes: ["/api/recommend", "/api/demand", "/api/update_user_preferences"]
+    # PathPrefix matches per path-SEGMENT, so "/api/recommend" does NOT match
+    # "/api/recommend_quick" or "/api/recommend_forecast" — each underscore
+    # variant is a distinct segment and must be listed explicitly. These mirror
+    # the AI service's actual routes (ai-recommender/app/main.py) and the paths
+    # the frontend calls (recommend_quick, recommend_forecast, demand/realtime).
+    pathPrefixes:
+      - "/api/recommend"
+      - "/api/recommend_quick"
+      - "/api/recommend_forecast"
+      - "/api/demand"
+      - "/api/update_user_preferences"
   # NOTE: the frontend is NOT a pod — it's served as static files from S3 via
   # CloudFront. CloudFront also forwards /api and /auth to the EKS NLB. So the
   # SPA and the API share one CloudFront (HTTPS) origin (no CORS/mixed-content).
