@@ -79,24 +79,11 @@ kubectl apply -f "$GITOPS/argocd/project.yaml"
 kubectl apply -f "$GITOPS/argocd/application.yaml"
 
 echo "######## 5/5  Wire CloudFront → EKS NLB ########"
-echo "Waiting for the kgateway NLB to be provisioned (ArgoCD must sync the Gateway first)..."
-NLB=""
-for _ in $(seq 1 36); do
-  NLB="$(kubectl get gateway cloudkitchen-gateway -n production -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)"
-  [ -n "$NLB" ] && break
-  sleep 10
-done
-if [ -n "$NLB" ]; then
-  echo "NLB: $NLB — pointing CloudFront /api and /auth at it..."
-  cd "$INFRA"
-  terraform apply -auto-approve -var="eks_api_origin=$NLB"
-  DIST="$(terraform output -raw cloudfront_distribution_id)"
-  aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/*' >/dev/null || true
-else
-  echo "WARNING: NLB not ready (is the gitops repo pushed so ArgoCD can sync?)."
-  echo "Once the gateway has an address, finish with:"
-  echo "  cd $INFRA && terraform apply -var=\"eks_api_origin=\$(kubectl get gateway cloudkitchen-gateway -n production -o jsonpath='{.status.addresses[0].value}')\""
-fi
+# Delegated to the idempotent wire-cloudfront.sh: it waits up to 10 min for the
+# NLB and FAILS LOUDLY if it never appears (instead of silently skipping, which
+# is what left CloudFront with no /api origin → empty menu / AI "warming up").
+# If this step ever fails, just re-run:  bash wire-cloudfront.sh
+bash "$GITOPS/wire-cloudfront.sh"
 
 echo ""
 echo "======================================================================"
