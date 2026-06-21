@@ -16,6 +16,13 @@ spec:
       labels:
         app: {{ .name }}
         {{- include "cloudkitchen.labels" $ | nindent 8 }}
+      {{- if .disableOtel }}
+      # Opt out of CloudWatch Application Signals auto-instrumentation. The
+      # injected OpenTelemetry Python packages clash with ChromaDB's bundled
+      # opentelemetry and crash the AI service on import.
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: "false"
+      {{- end }}
     spec:
       # ai uses its IRSA service account (SQS access); others use the default SA.
       serviceAccountName: {{ .serviceAccount | default "cloudkitchen-default" }}
