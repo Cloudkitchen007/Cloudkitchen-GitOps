@@ -77,6 +77,9 @@ services:
     replicas: 1
     serviceAccount: ai   # IRSA SA → SQS access without static keys
     pathPrefixes: ["/api/recommend", "/api/demand", "/api/update_user_preferences"]
+  # NOTE: the frontend is NOT a pod — it's served as static files from S3 via
+  # CloudFront. CloudFront also forwards /api and /auth to the EKS NLB. So the
+  # SPA and the API share one CloudFront (HTTPS) origin (no CORS/mixed-content).
 
 resources:
   requests:

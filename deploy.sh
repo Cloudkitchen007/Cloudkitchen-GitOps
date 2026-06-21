@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # =============================================================================
-# CloudKitchen — ONE-COMMAND DEPLOY (3-repo, EKS-only)
+# CloudKitchen — ONE-COMMAND DEPLOY (3-repo, EKS-only, CloudFront → NLB)
 #
 #   ./deploy.sh
 #
-# Assumes the three repos are cloned SIDE BY SIDE:
-#   <parent>/cloudkitchen-app
-#   <parent>/cloudkitchen-infra
-#   <parent>/cloudkitchen-gitops   ← run this script from here
+# Repos cloned SIDE BY SIDE: cloudkitchen-app / cloudkitchen-infra /
+# cloudkitchen-gitops (run this from cloudkitchen-gitops).
 #
 # Flow:
-#   1. terraform apply (infra: VPC, EKS, RDS, ECR, IRSA, SQS, Cognito,
-#      Secrets Manager, Container Insights)
-#   2. build + push all 5 service images to ECR (infra no longer builds them)
-#   3. install the platform (kgateway, ESO, ArgoCD-public, Prometheus/Grafana)
-#   4. hand the app to ArgoCD (GitOps) — ESO syncs secrets, ArgoCD syncs workloads
+#   1. terraform apply (infra; CloudFront has no API origin on this first pass)
+#   2. build + push the 4 BACKEND images to ECR
+#   3. build the React SPA and sync it to the frontend S3 bucket
+#   4. install the platform (kgateway, ESO, ArgoCD, Prometheus/Grafana) + ArgoCD app
+#   5. wait for the kgateway NLB, then a SECOND apply with
+#      -var=eks_api_origin=<nlb> so CloudFront forwards /api and /auth to it,
+#      then invalidate CloudFront
 #
-# Prereqs: terraform, aws, kubectl, docker (running), git. helm auto-installs.
+# Result: the entire app is reachable at the single CloudFront HTTPS URL
+#   (CloudFront → S3 for the SPA, CloudFront → NLB → kgateway for /api and /auth).
+#
+# Prereqs: terraform, aws, kubectl, docker (running), npm, git. helm auto-installs.
 # =============================================================================
 set -euo pipefail
 
@@ -29,7 +32,7 @@ INFRA="$GITOPS/../cloudkitchen-infra"
 APP="$GITOPS/../cloudkitchen-app"
 
 echo "Preflight checks..."
-for t in terraform aws kubectl docker; do command -v "$t" >/dev/null || { echo "ERROR: $t not installed."; exit 1; }; done
+for t in terraform aws kubectl docker npm; do command -v "$t" >/dev/null || { echo "ERROR: $t not installed."; exit 1; }; done
 docker info >/dev/null 2>&1 || { echo "ERROR: Docker is not running."; exit 1; }
 aws sts get-caller-identity >/dev/null 2>&1 || { echo "ERROR: AWS credentials not configured."; exit 1; }
 [ -d "$INFRA" ] || { echo "ERROR: sibling repo not found: $INFRA (clone all 3 repos side by side)."; exit 1; }
@@ -46,34 +49,61 @@ if ! command -v helm >/dev/null 2>&1 && [ ! -x "$HOME/bin/helm.exe" ]; then
 fi
 export PATH="$HOME/bin:$PATH"
 
-echo "######## 1/4  Terraform apply (infra) ########"
+echo "######## 1/5  Terraform apply (infra) ########"
+echo "--- bootstrap remote state (S3 + DynamoDB) ---"
+( cd "$INFRA/bootstrap" && terraform init -input=false && terraform apply -auto-approve )
 cd "$INFRA"
 terraform init -input=false
 terraform apply -auto-approve
 
-echo "######## 2/4  Build + push images to ECR ########"
+echo "######## 2/5  Build + push BACKEND images to ECR ########"
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR"
 build() { echo "--- $1 ---"; docker build -t "$ECR/$2:latest" "$APP/$1"; docker push "$ECR/$2:latest"; }
 build menu-service   cloudkitchen-menu-repo
 build order-service  cloudkitchen-order-repo
 build auth-service   cloudkitchen-auth-repo
 build ai-recommender cloudkitchen-ai-repo
-build frontend       cloudkitchen-app-repo
 
-echo "######## 3/4  Platform (kgateway, ESO, ArgoCD, monitoring) ########"
+echo "######## 3/5  Build React SPA + sync to S3 ########"
+FRONTEND_BUCKET="$(terraform -chdir="$INFRA" output -raw frontend_bucket_name)"
+# Testimonials upload talks to API Gateway directly; everything else uses
+# RELATIVE /api paths served by CloudFront → NLB (same origin).
+API_GW="$(terraform -chdir="$INFRA" output -raw api_gateway_url 2>/dev/null || echo "")"
+( cd "$APP/frontend" && npm install && REACT_APP_API_GATEWAY_URL="$API_GW" npm run build )
+aws s3 sync "$APP/frontend/build/" "s3://$FRONTEND_BUCKET" --delete
+
+echo "######## 4/5  Platform + deploy app via ArgoCD ########"
 aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION"
 bash "$GITOPS/bootstrap/install.sh"
-
-echo "######## 4/4  Deploy app via ArgoCD ########"
 kubectl apply -f "$GITOPS/argocd/project.yaml"
 kubectl apply -f "$GITOPS/argocd/application.yaml"
 
+echo "######## 5/5  Wire CloudFront → EKS NLB ########"
+echo "Waiting for the kgateway NLB to be provisioned (ArgoCD must sync the Gateway first)..."
+NLB=""
+for _ in $(seq 1 36); do
+  NLB="$(kubectl get gateway cloudkitchen-gateway -n production -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)"
+  [ -n "$NLB" ] && break
+  sleep 10
+done
+if [ -n "$NLB" ]; then
+  echo "NLB: $NLB — pointing CloudFront /api and /auth at it..."
+  cd "$INFRA"
+  terraform apply -auto-approve -var="eks_api_origin=$NLB"
+  DIST="$(terraform output -raw cloudfront_distribution_id)"
+  aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/*' >/dev/null || true
+else
+  echo "WARNING: NLB not ready (is the gitops repo pushed so ArgoCD can sync?)."
+  echo "Once the gateway has an address, finish with:"
+  echo "  cd $INFRA && terraform apply -var=\"eks_api_origin=\$(kubectl get gateway cloudkitchen-gateway -n production -o jsonpath='{.status.addresses[0].value}')\""
+fi
+
 echo ""
 echo "======================================================================"
-echo "DONE. ArgoCD will sync the app from your GitOps repo in ~1-2 min."
-echo "  App:     kubectl get application cloudkitchen -n argocd"
-echo "  Pods:    kubectl get pods -n production"
-echo "  EKS NLB: kubectl get gateway cloudkitchen-gateway -n production -o jsonpath='{.status.addresses[0].value}'"
+echo "DONE. Access the whole app at the CloudFront URL (give CloudFront a few"
+echo "minutes to deploy the new origin after the second apply):"
+echo "  APP:     https://$(terraform -chdir="$INFRA" output -raw cloudfront_url)"
 echo "  ArgoCD:  http://\$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
 echo "  Grafana: http://\$(kubectl -n monitoring get svc kube-prometheus-stack-grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+echo "  Pods:    kubectl get pods -n production"
 echo "======================================================================"

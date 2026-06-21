@@ -22,9 +22,9 @@ spec:
       # Pod-level hardening: non-root, no privilege escalation, seccomp.
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
+        runAsUser: {{ .runAsUser | default 1000 }}
+        runAsGroup: {{ .runAsUser | default 1000 }}
+        fsGroup: {{ .runAsUser | default 1000 }}
         seccompProfile:
           type: RuntimeDefault
       containers:

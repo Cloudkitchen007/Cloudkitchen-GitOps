@@ -38,7 +38,10 @@ kubectl -n external-secrets rollout status deploy/external-secrets --timeout=180
 
 echo "==> 4/4  ArgoCD (public LoadBalancer)..."
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+# --server-side avoids the 262 KB last-applied-annotation limit that the large
+# applicationsets CRD hits with client-side apply. --force-conflicts lets it
+# take over fields if a prior client-side apply already created resources.
+kubectl apply --server-side --force-conflicts -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 # Serve the UI over plain HTTP behind the LB (avoids self-signed cert warnings)
 kubectl -n argocd patch configmap argocd-cmd-params-cm --type merge -p '{"data":{"server.insecure":"true"}}'
 # Expose the server publicly so the UI is reachable from any machine via a link
@@ -46,7 +49,15 @@ kubectl -n argocd patch svc argocd-server -p '{"spec":{"type":"LoadBalancer"}}'
 kubectl -n argocd rollout restart deploy/argocd-server
 kubectl -n argocd rollout status deploy/argocd-server --timeout=300s || true
 
-echo "==> 5/5  Monitoring: Prometheus + Grafana (public LoadBalancer)..."
+echo "==> 5/5  Monitoring: Prometheus + Grafana + Alertmanager→Slack (public)..."
+# Slack webhook (from $SLACK_WEBHOOK_URL or the gitignored infra tfvars).
+# Stored in a secret Alertmanager mounts — never committed to git.
+SLACK_URL="${SLACK_WEBHOOK_URL:-$(grep -h 'slack_webhook_url' "$(dirname "$0")/../../cloudkitchen-infra/terraform.tfvars" 2>/dev/null | sed 's/.*= *"//; s/".*//')}"
+SLACK_URL="${SLACK_URL:-https://hooks.slack.com/services/REPLACE-ME}"
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic alertmanager-slack -n monitoring \
+  --from-literal=webhook="$SLACK_URL" --dry-run=client -o yaml | kubectl apply -f -
+
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
 helm repo update >/dev/null 2>&1 || true
 helm upgrade -i kube-prometheus-stack prometheus-community/kube-prometheus-stack \
