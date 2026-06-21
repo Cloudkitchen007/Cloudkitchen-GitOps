@@ -9,7 +9,7 @@ spec:
   project: cloudkitchen
   source:
     # ── Point this at your cloudkitchen-gitops org repo after you create it ──
-    repoURL: https://github.com/<YOUR-ORG>/cloudkitchen-gitops.git
+    repoURL: https://github.com/Cloudkitchen007/cloudkitchen-gitops.git
     targetRevision: main
     path: helm/cloudkitchen
     helm:
