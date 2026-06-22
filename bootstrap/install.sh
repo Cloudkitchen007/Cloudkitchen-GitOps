@@ -62,8 +62,9 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo update >/dev/null 2>&1 || true
 helm upgrade -i kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --namespace monitoring --create-namespace \
+  --timeout 15m \
   -f "$(dirname "$0")/../monitoring/values.yaml"
-kubectl -n monitoring rollout status deploy/kube-prometheus-stack-grafana --timeout=300s || true
+kubectl -n monitoring rollout status deploy/kube-prometheus-stack-grafana --timeout=600s || true
 
 echo ""
 echo "============================================================================"

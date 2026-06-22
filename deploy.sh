@@ -4,8 +4,8 @@
 #
 #   ./deploy.sh
 #
-# Repos cloned SIDE BY SIDE: cloudkitchen-app / cloudkitchen-infra /
-# cloudkitchen-gitops (run this from cloudkitchen-gitops).
+# Repos cloned SIDE BY SIDE: Cloudkitchen-Application / Cloudkitchen-Infra /
+# Cloudkitchen-GitOps (run this from Cloudkitchen-GitOps).
 #
 # Flow:
 #   1. terraform apply (infra; CloudFront has no API origin on this first pass)
@@ -28,8 +28,8 @@ CLUSTER="cloudkitchen-eks"
 ACCOUNT="256603361470"
 ECR="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
 GITOPS="$(cd "$(dirname "$0")" && pwd)"
-INFRA="$GITOPS/../cloudkitchen-infra"
-APP="$GITOPS/../cloudkitchen-app"
+INFRA="$GITOPS/../Cloudkitchen-Infra"
+APP="$GITOPS/../Cloudkitchen-Application"
 
 # GitHub org that hosts the 3 repos (override with GIT_ORG=... ./deploy.sh).
 GIT_ORG="${GIT_ORG:-Cloudkitchen007}"
@@ -43,8 +43,8 @@ aws sts get-caller-identity >/dev/null 2>&1 || { echo "ERROR: AWS credentials no
 clone_if_missing() {
   [ -d "$2" ] || { echo "Cloning $1 → $2"; git clone "https://github.com/$GIT_ORG/$1.git" "$2"; }
 }
-clone_if_missing cloudkitchen-infra "$INFRA"
-clone_if_missing cloudkitchen-app   "$APP"
+clone_if_missing Cloudkitchen-Infra       "$INFRA"
+clone_if_missing Cloudkitchen-Application "$APP"
 
 # --- Ensure terraform.tfvars exists (gitignored secrets). Generate it from env -
 # vars on a fresh machine: HF_API_TOKEN is required; SLACK_WEBHOOK_URL optional.
@@ -69,18 +69,66 @@ export PATH="$HOME/bin:$PATH"
 
 echo "######## 1/5  Terraform apply (infra) ########"
 echo "--- bootstrap remote state (S3 + DynamoDB) ---"
-( cd "$INFRA/bootstrap" && terraform init -input=false && terraform apply -auto-approve )
+(
+  cd "$INFRA/bootstrap"
+  terraform init -input=false
+
+  # Sync any pre-existing AWS resources into state so apply is idempotent across
+  # repeated apply/destroy cycles. Import is a no-op if the resource is already
+  # tracked; silently skipped if it doesn't exist in AWS yet.
+  _import() {
+    terraform state show "$1" >/dev/null 2>&1 && return 0   # already in state
+    terraform import "$1" "$2" 2>/dev/null && return 0       # pulled from AWS
+    return 0                                                  # doesn't exist yet — apply will create it
+  }
+  _import aws_s3_bucket.tfstate                               "cloudkitchen-tfstate-$ACCOUNT"
+  _import aws_s3_bucket_versioning.tfstate                    "cloudkitchen-tfstate-$ACCOUNT"
+  _import aws_s3_bucket_server_side_encryption_configuration.tfstate "cloudkitchen-tfstate-$ACCOUNT"
+  _import aws_s3_bucket_public_access_block.tfstate           "cloudkitchen-tfstate-$ACCOUNT"
+  _import aws_s3_bucket_lifecycle_configuration.tfstate       "cloudkitchen-tfstate-$ACCOUNT"
+  _import aws_dynamodb_table.tfstate_lock                     "cloudkitchen-tfstate-lock"
+
+  terraform apply -auto-approve
+)
 cd "$INFRA"
+# Clear any stale DynamoDB checksum left over from a previous deploy/destroy cycle.
+# Without this, terraform init fails with a checksum-mismatch error when the S3
+# state is empty (fresh deploy) but DynamoDB still holds a digest from last time.
+LOCK_KEY="cloudkitchen-tfstate-$ACCOUNT/cloudkitchen/terraform.tfstate-md5"
+aws dynamodb delete-item \
+  --table-name cloudkitchen-tfstate-lock \
+  --key "{\"LockID\":{\"S\":\"$LOCK_KEY\"}}" \
+  --region "$REGION" 2>/dev/null || true
 terraform init -input=false
 terraform apply -auto-approve
 
 echo "######## 2/5  Build + push BACKEND images to ECR ########"
+# Capture the app repo commit SHA so every image is tagged with both :latest
+# AND the exact SHA that values.yaml will reference. ArgoCD uses the SHA tag —
+# using :latest alone means ArgoCD can never find the image it expects.
+APP_SHA="$(git -C "$APP" rev-parse HEAD)"
+echo "App commit: $APP_SHA"
+
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR"
-build() { echo "--- $1 ---"; docker build -t "$ECR/$2:latest" "$APP/$1"; docker push "$ECR/$2:latest"; }
+build() {
+  echo "--- $1 ---"
+  docker build -t "$ECR/$2:$APP_SHA" -t "$ECR/$2:latest" "$APP/$1"
+  docker push "$ECR/$2:$APP_SHA"
+  docker push "$ECR/$2:latest"
+}
 build menu-service   cloudkitchen-menu-repo
 build order-service  cloudkitchen-order-repo
 build auth-service   cloudkitchen-auth-repo
 build ai-recommender cloudkitchen-ai-repo
+
+# Update helm values.yaml with the new SHA so ArgoCD deploys the images
+# we just pushed. Commit + push so the GitOps repo stays the source of truth.
+VALUES="$GITOPS/helm/cloudkitchen/values.yaml"
+sed -i "s/imageTag: \".*\"/imageTag: \"$APP_SHA\"/" "$VALUES"
+cd "$GITOPS"
+git add helm/cloudkitchen/values.yaml
+git diff --cached --quiet || git commit -m "deploy: update imageTag to $APP_SHA"
+git push origin main
 
 echo "######## 3/5  Build React SPA + sync to S3 ########"
 FRONTEND_BUCKET="$(terraform -chdir="$INFRA" output -raw frontend_bucket_name)"
