@@ -121,13 +121,15 @@ build order-service  cloudkitchen-order-repo
 build auth-service   cloudkitchen-auth-repo
 build ai-recommender cloudkitchen-ai-repo
 
-# Update helm values.yaml with the new SHA so ArgoCD deploys the images
-# we just pushed. Commit + push so the GitOps repo stays the source of truth.
+# Update per-service imageTags in values.yaml so ArgoCD deploys the images
+# we just pushed. All 4 backend services get the same SHA (full redeploy).
 VALUES="$GITOPS/helm/cloudkitchen/values.yaml"
-sed -i "s/imageTag: \".*\"/imageTag: \"$APP_SHA\"/" "$VALUES"
+for SVC in menu order auth ai; do
+  sed -i "s/^  $SVC: \".*\"/  $SVC: \"$APP_SHA\"/" "$VALUES"
+done
 cd "$GITOPS"
 git add helm/cloudkitchen/values.yaml
-git diff --cached --quiet || git commit -m "deploy: update imageTag to $APP_SHA"
+git diff --cached --quiet || git commit -m "deploy: update imageTags to $APP_SHA"
 git push origin main
 
 echo "######## 3/5  Build React SPA + sync to S3 ########"

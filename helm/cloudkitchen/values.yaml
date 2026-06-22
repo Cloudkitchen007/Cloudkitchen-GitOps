@@ -6,7 +6,15 @@ global:
   region: ap-south-1
   accountId: "256603361470"
   ecrRegistry: "256603361470.dkr.ecr.ap-south-1.amazonaws.com"
-  imageTag: "d631da40772928cc74ae53b781edfb492ed0c24f"
+
+# Per-service image tags. Each service's CI workflow updates only its own entry
+# so a change to order-service never touches menu/auth/ai and vice versa.
+# deploy.sh updates all four at once on a full redeploy.
+imageTags:
+  menu:  "d631da40772928cc74ae53b781edfb492ed0c24f"
+  order: "d631da40772928cc74ae53b781edfb492ed0c24f"
+  auth:  "d631da40772928cc74ae53b781edfb492ed0c24f"
+  ai:    "d631da40772928cc74ae53b781edfb492ed0c24f"
 
 # Non-secret config → rendered into the `cloudkitchen-config` ConfigMap and
 # injected into every pod via envFrom. (Secrets live in `cloudkitchen-secrets`,
