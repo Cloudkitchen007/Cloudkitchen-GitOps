@@ -17,7 +17,7 @@ set -uo pipefail # not -e: keep cleaning up even if a step is a no-op
 REGION="ap-south-1"
 CLUSTER="cloudkitchen-eks"
 GITOPS="$(cd "$(dirname "$0")" && pwd)"
-INFRA="$GITOPS/../cloudkitchen-infra"
+INFRA="$GITOPS/../Cloudkitchen-Infra"
 
 aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION" >/dev/null 2>&1 || true
 
@@ -39,6 +39,7 @@ done
 
 echo "######## 3/3  terraform destroy ########"
 cd "$INFRA"
+terraform init -input=false   # safe no-op if already initialised; required on fresh clone
 terraform destroy -auto-approve
 
 echo ""
