@@ -14,7 +14,7 @@ imageTags:
   menu: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
   order: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
   auth: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
-  ai: "d3c3dca8a47ff818e2339a74dc1b939ab4d4272e"
+  ai: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
 
 # Non-secret config → rendered into the `cloudkitchen-config` ConfigMap and
 # injected into every pod via envFrom. (Secrets live in `cloudkitchen-secrets`,
