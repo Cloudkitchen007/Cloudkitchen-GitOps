@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REGION="ap-south-1"
-INFRA="$(cd "$(dirname "$0")/../cloudkitchen-infra" && pwd)"
+INFRA="$(cd "$(dirname "$0")/../Cloudkitchen-Infra" && pwd)"
 
 echo "Waiting for the kgateway NLB (ArgoCD must have synced the Gateway)..."
 NLB=""
