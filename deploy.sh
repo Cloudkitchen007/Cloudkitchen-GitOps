@@ -125,7 +125,9 @@ build ai-recommender cloudkitchen-ai-repo
 # we just pushed. All 4 backend services get the same SHA (full redeploy).
 VALUES="$GITOPS/helm/cloudkitchen/values.yaml"
 for SVC in menu order auth ai; do
-  sed -i "s/^  $SVC: \".*\"/  $SVC: \"$APP_SHA\"/" "$VALUES"
+  # Use [^"]* and ' *' so the pattern matches regardless of how many spaces
+  # the YAML has between the key colon and the quoted SHA value.
+  sed -i "s|^  $SVC: *\"[^\"]*\"|  $SVC: \"$APP_SHA\"|" "$VALUES"
 done
 cd "$GITOPS"
 git add helm/cloudkitchen/values.yaml
