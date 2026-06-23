@@ -12,7 +12,7 @@ global:
 # deploy.sh updates all four at once on a full redeploy.
 imageTags:
   menu: "d3c3dca8a47ff818e2339a74dc1b939ab4d4272e"
-  order: "d3c3dca8a47ff818e2339a74dc1b939ab4d4272e"
+  order: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
   auth: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
   ai: "d3c3dca8a47ff818e2339a74dc1b939ab4d4272e"
 
