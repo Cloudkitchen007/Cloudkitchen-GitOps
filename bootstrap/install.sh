@@ -5,24 +5,24 @@ set -euo pipefail
 GATEWAY_API_VERSION="v1.2.0"
 KGATEWAY_VERSION="v2.0.0"
 
-echo "==> 1/4  Gateway API CRDs (${GATEWAY_API_VERSION})..."
+echo "==> 1/5 Gateway API CRDs (${GATEWAY_API_VERSION})..."
 kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
 
-echo "==> 2/4  kgateway (${KGATEWAY_VERSION})..."
+echo "==> 2/5 kgateway (${KGATEWAY_VERSION})..."
 helm upgrade -i kgateway-crds oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds \
   --version "${KGATEWAY_VERSION}" --namespace kgateway-system --create-namespace
 helm upgrade -i kgateway oci://cr.kgateway.dev/kgateway-dev/charts/kgateway \
   --version "${KGATEWAY_VERSION}" --namespace kgateway-system
 kubectl -n kgateway-system rollout status deploy/kgateway --timeout=180s || true
 
-echo "==> 3/4  External Secrets Operator..."
+echo "==> 3/5 External Secrets Operator..."
 helm repo add external-secrets https://charts.external-secrets.io >/dev/null 2>&1 || true
 helm repo update >/dev/null 2>&1 || true
 helm upgrade -i external-secrets external-secrets/external-secrets \
   --namespace external-secrets --create-namespace --set installCRDs=true
 kubectl -n external-secrets rollout status deploy/external-secrets --timeout=180s || true
 
-echo "==> 4/4  ArgoCD (public LoadBalancer)..."
+echo "==> 4/5 ArgoCD (public LoadBalancer)..."
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl apply --server-side --force-conflicts -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
@@ -45,8 +45,8 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo update >/dev/null 2>&1 || true
 helm upgrade -i kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --namespace monitoring --create-namespace \
-  --timeout 15m \
-  -f "$(dirname "$0")/../monitoring/values.yaml"
+  --version 65.1.1 \
+  -f "$(dirname "$0")/../monitoring/values.yaml" || true
 kubectl -n monitoring rollout status deploy/kube-prometheus-stack-grafana --timeout=600s || true
 
 echo ""
