@@ -11,7 +11,7 @@ global:
 imageTags:
   menu: "14bab659e6b85b7eb464b829e67d107942b1913f"
   order: "14bab659e6b85b7eb464b829e67d107942b1913f"
-  auth: "latest"
+  auth: "14bab659e6b85b7eb464b829e67d107942b1913f"
   ai: "14bab659e6b85b7eb464b829e67d107942b1913f"
 
 config:
