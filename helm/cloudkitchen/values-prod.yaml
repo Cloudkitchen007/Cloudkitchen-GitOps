@@ -12,7 +12,7 @@ imageTags:
   menu: "latest"
   order: "latest"
   auth: "latest"
-  ai: "latest"
+  ai: "14bab659e6b85b7eb464b829e67d107942b1913f"
 
 config:
   hfModel: "mistralai/Mistral-7B-Instruct-v0.3"
