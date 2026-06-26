@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
-# =============================================================================
-# CloudKitchen — ONE-COMMAND SAFE DESTROY (3-repo, EKS-only)
-#
-#   ./destroy.sh
-#
-# Order matters: every Kubernetes LoadBalancer Service creates an AWS NLB/ELB
-# that is NOT in Terraform state. Those must be deleted FIRST, or their network
-# interfaces orphan and block VPC deletion (hanging terraform destroy).
-#
-#   1. delete the ArgoCD app (prunes workloads incl. the gateway)
-#   2. delete ALL LoadBalancer services (gateway + ArgoCD + Grafana)
-#   3. terraform destroy (IRSA, app-runtime secret, ECR force_delete — all clean)
-# =============================================================================
-set -uo pipefail # not -e: keep cleaning up even if a step is a no-op
+
+set -uo pipefail 
 
 REGION="ap-south-1"
 CLUSTER="cloudkitchen-eks"
@@ -39,7 +27,7 @@ done
 
 echo "######## 3/3  terraform destroy ########"
 cd "$INFRA"
-terraform init -input=false   # safe no-op if already initialised; required on fresh clone
+terraform init -input=false   
 terraform destroy -auto-approve
 
 echo ""

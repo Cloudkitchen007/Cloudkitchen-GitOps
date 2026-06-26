@@ -1,26 +1,5 @@
 #!/usr/bin/env bash
-# =============================================================================
-# CloudKitchen — ONE-COMMAND DEPLOY (3-repo, EKS-only, CloudFront → NLB)
-#
-#   ./deploy.sh
-#
-# Repos cloned SIDE BY SIDE: Cloudkitchen-Application / Cloudkitchen-Infra /
-# Cloudkitchen-GitOps (run this from Cloudkitchen-GitOps).
-#
-# Flow:
-#   1. terraform apply (infra; CloudFront has no API origin on this first pass)
-#   2. build + push the 4 BACKEND images to ECR
-#   3. build the React SPA and sync it to the frontend S3 bucket
-#   4. install the platform (kgateway, ESO, ArgoCD, Prometheus/Grafana) + ArgoCD app
-#   5. wait for the kgateway NLB, then a SECOND apply with
-#      -var=eks_api_origin=<nlb> so CloudFront forwards /api and /auth to it,
-#      then invalidate CloudFront
-#
-# Result: the entire app is reachable at the single CloudFront HTTPS URL
-#   (CloudFront → S3 for the SPA, CloudFront → NLB → kgateway for /api and /auth).
-#
-# Prereqs: terraform, aws, kubectl, docker (running), npm, git. helm auto-installs.
-# =============================================================================
+
 set -euo pipefail
 
 REGION="ap-south-1"
@@ -31,7 +10,7 @@ GITOPS="$(cd "$(dirname "$0")" && pwd)"
 INFRA="$GITOPS/../Cloudkitchen-Infra"
 APP="$GITOPS/../Cloudkitchen-Application"
 
-# GitHub org that hosts the 3 repos (override with GIT_ORG=... ./deploy.sh).
+
 GIT_ORG="${GIT_ORG:-Cloudkitchen007}"
 
 echo "Preflight checks..."
@@ -39,15 +18,14 @@ for t in terraform aws kubectl docker npm git; do command -v "$t" >/dev/null || 
 docker info >/dev/null 2>&1 || { echo "ERROR: Docker is not running."; exit 1; }
 aws sts get-caller-identity >/dev/null 2>&1 || { echo "ERROR: AWS credentials not configured (run 'aws configure')."; exit 1; }
 
-# --- Auto-clone the sibling repos if missing (so this works on a fresh laptop) -
+
 clone_if_missing() {
   [ -d "$2" ] || { echo "Cloning $1 → $2"; git clone "https://github.com/$GIT_ORG/$1.git" "$2"; }
 }
 clone_if_missing Cloudkitchen-Infra       "$INFRA"
 clone_if_missing Cloudkitchen-Application "$APP"
 
-# --- Ensure terraform.tfvars exists (gitignored secrets). Generate it from env -
-# vars on a fresh machine: HF_API_TOKEN is required; SLACK_WEBHOOK_URL optional.
+
 if [ ! -f "$INFRA/terraform.tfvars" ]; then
   [ -n "${HF_API_TOKEN:-}" ] || { echo "ERROR: no $INFRA/terraform.tfvars and HF_API_TOKEN env var not set.
   Set it once:  export HF_API_TOKEN=hf_xxx   (free token: huggingface.co/settings/tokens)
@@ -59,7 +37,7 @@ if [ ! -f "$INFRA/terraform.tfvars" ]; then
   } > "$INFRA/terraform.tfvars"
 fi
 
-# ensure helm
+
 if ! command -v helm >/dev/null 2>&1 && [ ! -x "$HOME/bin/helm.exe" ]; then
   echo "Installing helm locally..."
   curl -fsSL https://get.helm.sh/helm-v3.16.3-windows-amd64.zip -o /tmp/helm.zip
@@ -73,13 +51,11 @@ echo "--- bootstrap remote state (S3 + DynamoDB) ---"
   cd "$INFRA/bootstrap"
   terraform init -input=false
 
-  # Sync any pre-existing AWS resources into state so apply is idempotent across
-  # repeated apply/destroy cycles. Import is a no-op if the resource is already
-  # tracked; silently skipped if it doesn't exist in AWS yet.
+
   _import() {
-    terraform state show "$1" >/dev/null 2>&1 && return 0   # already in state
-    terraform import "$1" "$2" 2>/dev/null && return 0       # pulled from AWS
-    return 0                                                  # doesn't exist yet — apply will create it
+    terraform state show "$1" >/dev/null 2>&1 && return 0  
+    terraform import "$1" "$2" 2>/dev/null && return 0     
+    return 0                                                 
   }
   _import aws_s3_bucket.tfstate                               "cloudkitchen-tfstate-$ACCOUNT"
   _import aws_s3_bucket_versioning.tfstate                    "cloudkitchen-tfstate-$ACCOUNT"
@@ -91,9 +67,7 @@ echo "--- bootstrap remote state (S3 + DynamoDB) ---"
   terraform apply -auto-approve
 )
 cd "$INFRA"
-# Clear any stale DynamoDB checksum left over from a previous deploy/destroy cycle.
-# Without this, terraform init fails with a checksum-mismatch error when the S3
-# state is empty (fresh deploy) but DynamoDB still holds a digest from last time.
+
 LOCK_KEY="cloudkitchen-tfstate-$ACCOUNT/cloudkitchen/terraform.tfstate-md5"
 aws dynamodb delete-item \
   --table-name cloudkitchen-tfstate-lock \
@@ -103,9 +77,7 @@ terraform init -input=false
 terraform apply -auto-approve
 
 echo "######## 2/5  Build + push BACKEND images to ECR ########"
-# Capture the app repo commit SHA so every image is tagged with both :latest
-# AND the exact SHA that values.yaml will reference. ArgoCD uses the SHA tag —
-# using :latest alone means ArgoCD can never find the image it expects.
+
 APP_SHA="$(git -C "$APP" rev-parse HEAD)"
 echo "App commit: $APP_SHA"
 
@@ -121,12 +93,9 @@ build order-service  cloudkitchen-order-repo
 build auth-service   cloudkitchen-auth-repo
 build ai-recommender cloudkitchen-ai-repo
 
-# Update per-service imageTags in values.yaml so ArgoCD deploys the images
-# we just pushed. All 4 backend services get the same SHA (full redeploy).
+
 VALUES="$GITOPS/helm/cloudkitchen/values.yaml"
 for SVC in menu order auth ai; do
-  # Use [^"]* and ' *' so the pattern matches regardless of how many spaces
-  # the YAML has between the key colon and the quoted SHA value.
   sed -i "s|^  $SVC: *\"[^\"]*\"|  $SVC: \"$APP_SHA\"|" "$VALUES"
 done
 cd "$GITOPS"
@@ -136,8 +105,7 @@ git push origin main
 
 echo "######## 3/5  Build React SPA + sync to S3 ########"
 FRONTEND_BUCKET="$(terraform -chdir="$INFRA" output -raw frontend_bucket_name)"
-# Testimonials upload talks to API Gateway directly; everything else uses
-# RELATIVE /api paths served by CloudFront → NLB (same origin).
+
 API_GW="$(terraform -chdir="$INFRA" output -raw api_gateway_url 2>/dev/null || echo "")"
 ( cd "$APP/frontend" && npm install && REACT_APP_API_GATEWAY_URL="$API_GW" npm run build )
 aws s3 sync "$APP/frontend/build/" "s3://$FRONTEND_BUCKET" --delete
@@ -149,10 +117,7 @@ kubectl apply -f "$GITOPS/argocd/project.yaml"
 kubectl apply -f "$GITOPS/argocd/application.yaml"
 
 echo "######## 5/5  Wire CloudFront → EKS NLB ########"
-# Delegated to the idempotent wire-cloudfront.sh: it waits up to 10 min for the
-# NLB and FAILS LOUDLY if it never appears (instead of silently skipping, which
-# is what left CloudFront with no /api origin → empty menu / AI "warming up").
-# If this step ever fails, just re-run:  bash wire-cloudfront.sh
+
 bash "$GITOPS/wire-cloudfront.sh"
 
 echo ""
@@ -160,5 +125,5 @@ echo "======================================================================"
 echo "DONE. (CloudFront takes a few minutes to deploy the new origin.)"
 echo "All access links + credentials below — re-print anytime with: bash links.sh"
 echo "======================================================================"
-# Single source of truth for every URL + credential.
+
 bash "$GITOPS/links.sh"

@@ -1,18 +1,18 @@
 # =============================================================================
-# CloudKitchen Helm values
+# CloudKitchen Helm values — PROD ENVIRONMENT
 # =============================================================================
+# Production-grade replicas, image tags from main branch, full resources
 
 global:
   region: ap-south-1
   accountId: "256603361470"
   ecrRegistry: "256603361470.dkr.ecr.ap-south-1.amazonaws.com"
 
-
 imageTags:
-  menu: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
-  order: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
-  auth: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
-  ai: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
+  menu: "latest"
+  order: "latest"
+  auth: "latest"
+  ai: "latest"
 
 config:
   hfModel: "mistralai/Mistral-7B-Instruct-v0.3"
@@ -22,23 +22,16 @@ irsa:
   orderRoleArn: "arn:aws:iam::256603361470:role/cloudkitchen-order-irsa"
   esoRoleArn:   "arn:aws:iam::256603361470:role/cloudkitchen-eso-irsa"
 
-
 eso:
   region: ap-south-1
-  appSecretName: "cloudkitchen/app/runtime"         
-  dbSecretName:  "cloudkitchen/db/credentials-new"  
-
+  appSecretName: "cloudkitchen/app/runtime"
+  dbSecretName:  "cloudkitchen/db/credentials-new"
 
 gateway:
   name: cloudkitchen-gateway
-  className: kgateway        
+  className: kgateway
   lbAnnotations:
     service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
- 
-  #   service.beta.kubernetes.io/aws-load-balancer-type: "external"
-  #   service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
-  #   service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
-
 
 services:
   - name: menu
@@ -50,7 +43,7 @@ services:
     repo: cloudkitchen-order-repo
     port: 8082
     replicas: 2
-    serviceAccount: order  
+    serviceAccount: order
     pathPrefixes: ["/api/orders"]
   - name: auth
     repo: cloudkitchen-auth-repo
@@ -61,8 +54,8 @@ services:
     repo: cloudkitchen-ai-repo
     port: 8000
     replicas: 1
-    serviceAccount: ai   
-    disableOtel: true   
+    serviceAccount: ai
+    disableOtel: true
     pathPrefixes:
       - "/api/recommend"
       - "/api/recommend_quick"
@@ -75,4 +68,5 @@ resources:
     cpu: 100m
     memory: 256Mi
   limits:
+    cpu: 500m
     memory: 512Mi

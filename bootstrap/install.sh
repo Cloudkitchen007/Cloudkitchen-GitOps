@@ -1,19 +1,5 @@
 #!/usr/bin/env bash
-# =============================================================================
-# CloudKitchen EKS platform bootstrap (run ONCE per cluster, or every recreate)
-#
-# Installs, in order:
-#   1. Gateway API CRDs            (Gateway/HTTPRoute resource types)
-#   2. kgateway                    (Envoy-based Gateway API implementation → NLB)
-#   3. External Secrets Operator   (AWS Secrets Manager → K8s Secrets, via IRSA)
-#   4. ArgoCD                      (GitOps controller) — exposed via a PUBLIC
-#                                   LoadBalancer so the UI works from any laptop
-#                                   (no localhost / port-forward needed)
-#   5. kube-prometheus-stack       (Prometheus + Grafana; Grafana = public LB)
-#
-# Prereqs: kubectl, helm, aws — kubeconfig pointed at the cluster:
-#   aws eks update-kubeconfig --name cloudkitchen-eks --region ap-south-1
-# =============================================================================
+
 set -euo pipefail
 
 GATEWAY_API_VERSION="v1.2.0"
@@ -38,20 +24,17 @@ kubectl -n external-secrets rollout status deploy/external-secrets --timeout=180
 
 echo "==> 4/4  ArgoCD (public LoadBalancer)..."
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-# --server-side avoids the 262 KB last-applied-annotation limit that the large
-# applicationsets CRD hits with client-side apply. --force-conflicts lets it
-# take over fields if a prior client-side apply already created resources.
+
 kubectl apply --server-side --force-conflicts -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-# Serve the UI over plain HTTP behind the LB (avoids self-signed cert warnings)
+
 kubectl -n argocd patch configmap argocd-cmd-params-cm --type merge -p '{"data":{"server.insecure":"true"}}'
-# Expose the server publicly so the UI is reachable from any machine via a link
+
 kubectl -n argocd patch svc argocd-server -p '{"spec":{"type":"LoadBalancer"}}'
 kubectl -n argocd rollout restart deploy/argocd-server
 kubectl -n argocd rollout status deploy/argocd-server --timeout=300s || true
 
 echo "==> 5/5  Monitoring: Prometheus + Grafana + Alertmanager→Slack (public)..."
-# Slack webhook (from $SLACK_WEBHOOK_URL or the gitignored infra tfvars).
-# Stored in a secret Alertmanager mounts — never committed to git.
+
 SLACK_URL="${SLACK_WEBHOOK_URL:-$(grep -h 'slack_webhook_url' "$(dirname "$0")/../../cloudkitchen-infra/terraform.tfvars" 2>/dev/null | sed 's/.*= *"//; s/".*//')}"
 SLACK_URL="${SLACK_URL:-https://hooks.slack.com/services/REPLACE-ME}"
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -

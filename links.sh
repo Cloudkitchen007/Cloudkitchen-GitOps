@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Print every CloudKitchen UI link + credentials. Run from cloudkitchen-gitops.
-# LB DNS may take ~2 min to appear after a fresh deploy.
+
 set -uo pipefail
 
 lb() { kubectl -n "$1" get svc "$2" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null; }

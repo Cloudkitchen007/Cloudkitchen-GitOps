@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# =============================================================================
-# Re-point CloudFront /api + /auth at the CURRENT EKS NLB, then invalidate.
-#
-#   bash wire-cloudfront.sh
-#
-# Run this ANY time the app shows an empty menu / "AI warming up" after a
-# destroy-recreate. Cause: each recreate gives Kubernetes a NEW NLB DNS name,
-# and CloudFront must be re-pointed at it. This script is idempotent and waits
-# for the NLB to exist, so it can't silently skip the way deploy.sh step 5 can.
-# =============================================================================
+
 set -euo pipefail
 
 REGION="ap-south-1"
@@ -16,7 +7,7 @@ INFRA="$(cd "$(dirname "$0")/../Cloudkitchen-Infra" && pwd)"
 
 echo "Waiting for the kgateway NLB (ArgoCD must have synced the Gateway)..."
 NLB=""
-for _ in $(seq 1 60); do  # up to 10 min
+for _ in $(seq 1 60); do  
   NLB="$(kubectl get gateway cloudkitchen-gateway -n production -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)"
   [ -n "$NLB" ] && break
   sleep 10
