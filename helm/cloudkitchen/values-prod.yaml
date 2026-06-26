@@ -9,9 +9,9 @@ global:
   ecrRegistry: "256603361470.dkr.ecr.ap-south-1.amazonaws.com"
 
 imageTags:
-  menu: "latest"
-  order: "latest"
-  auth: "latest"
+  menu: "14bab659e6b85b7eb464b829e67d107942b1913f"
+  order: "14bab659e6b85b7eb464b829e67d107942b1913f"
+  auth: "14bab659e6b85b7eb464b829e67d107942b1913f"
   ai: "14bab659e6b85b7eb464b829e67d107942b1913f"
 
 config:
