@@ -10,7 +10,7 @@ INFRA="$GITOPS/../Cloudkitchen-Infra"
 aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION" >/dev/null 2>&1 || true
 
 echo "######## 1/3  Remove the ArgoCD app (prunes workloads + gateway) ########"
-kubectl delete application cloudkitchen -n argocd --ignore-not-found --timeout=180s 2>/dev/null || true
+kubectl delete application cloudkitchen-dev cloudkitchen-prod -n argocd --ignore-not-found --timeout=180s 2>/dev/null || true
 
 echo "######## 2/3  Delete ALL LoadBalancer services (no orphaned LBs) ########"
 kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace} {.metadata.name}{"\n"}{end}' 2>/dev/null \
