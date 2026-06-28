@@ -120,17 +120,20 @@ kubectl apply -f "$GITOPS/argocd/project.yaml"
 kubectl apply -f "$GITOPS/argocd/application-dev.yaml"
 kubectl apply -f "$GITOPS/argocd/application-prod.yaml"
 
-# Monitoring safety net: install.sh step 5 uses || true so failures are silent.
-# Re-install here if the Helm release is still missing after install.sh.
-if ! helm list -n monitoring 2>/dev/null | grep -q kube-prometheus-stack; then
-  echo "--- Monitoring not found after install.sh — installing now ---"
+# Monitoring safety net (final backstop): verify Grafana actually exists, not
+# just the helm release — a failed/partial release still shows in `helm list`.
+if ! kubectl -n monitoring get deploy kube-prometheus-stack-grafana >/dev/null 2>&1; then
+  echo "--- Grafana not found after install.sh — reinstalling monitoring now ---"
   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
   helm repo update >/dev/null 2>&1 || true
   kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-  helm upgrade -i kube-prometheus-stack prometheus-community/kube-prometheus-stack \
-    --namespace monitoring \
-    --version 65.1.1 \
-    -f "$GITOPS/monitoring/values.yaml"
+  for attempt in 1 2 3; do
+    helm upgrade -i kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+      --namespace monitoring \
+      --version 65.1.1 \
+      -f "$GITOPS/monitoring/values.yaml" && break
+    echo "  reinstall attempt $attempt failed — retrying in 15s..."; sleep 15
+  done
   kubectl -n monitoring rollout status deploy/kube-prometheus-stack-grafana --timeout=600s || true
 fi
 

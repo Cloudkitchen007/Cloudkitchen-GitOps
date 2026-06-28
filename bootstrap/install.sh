@@ -43,11 +43,31 @@ kubectl create secret generic alertmanager-slack -n monitoring \
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
 helm repo update >/dev/null 2>&1 || true
-helm upgrade -i kube-prometheus-stack prometheus-community/kube-prometheus-stack \
-  --namespace monitoring --create-namespace \
-  --version 65.1.1 \
-  -f "$(dirname "$0")/../monitoring/values.yaml" || true
-kubectl -n monitoring rollout status deploy/kube-prometheus-stack-grafana --timeout=600s || true
+
+# Retry the install up to 3 times. A transient network/API hiccup during the
+# heavy deploy used to silently skip monitoring (old "|| true"), leaving Grafana
+# permanently absent until a manual reinstall. Now we retry and VERIFY.
+MON_OK=""
+for attempt in 1 2 3; do
+  echo "  monitoring install attempt $attempt/3..."
+  if helm upgrade -i kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+       --namespace monitoring --create-namespace \
+       --version 65.1.1 \
+       -f "$(dirname "$0")/../monitoring/values.yaml"; then
+    MON_OK="yes"
+    break
+  fi
+  echo "  attempt $attempt failed — retrying in 15s..."
+  sleep 15
+done
+
+if [ -z "$MON_OK" ]; then
+  echo "  WARNING: monitoring helm install failed after 3 attempts."
+  echo "  Re-run manually:  bash bootstrap/install.sh   (or just the helm command above)"
+else
+  kubectl -n monitoring rollout status deploy/kube-prometheus-stack-grafana --timeout=600s || \
+    echo "  Grafana is still starting — give it a few minutes, then: bash links.sh"
+fi
 
 echo ""
 echo "============================================================================"
