@@ -53,7 +53,7 @@ services:
   - name: ai
     repo: cloudkitchen-ai-repo
     port: 8000
-    replicas: 1
+    replicas: 2
     serviceAccount: ai
     disableOtel: true
     pathPrefixes:

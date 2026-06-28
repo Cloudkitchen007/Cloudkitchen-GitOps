@@ -84,9 +84,10 @@ echo "App commit: $APP_SHA"
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR"
 build() {
   echo "--- $1 ---"
-  docker build -t "$ECR/$2:$APP_SHA" -t "$ECR/$2:latest" "$APP/$1"
+  docker build -t "$ECR/$2:$APP_SHA" -t "$ECR/$2:latest" -t "$ECR/$2:dev-latest" "$APP/$1"
   docker push "$ECR/$2:$APP_SHA"
   docker push "$ECR/$2:latest"
+  docker push "$ECR/$2:dev-latest"
 }
 build menu-service   cloudkitchen-menu-repo
 build order-service  cloudkitchen-order-repo
@@ -95,11 +96,13 @@ build ai-recommender cloudkitchen-ai-repo
 
 
 VALUES="$GITOPS/helm/cloudkitchen/values.yaml"
+VALUES_PROD="$GITOPS/helm/cloudkitchen/values-prod.yaml"
 for SVC in menu order auth ai; do
   sed -i "s|^  $SVC: *\"[^\"]*\"|  $SVC: \"$APP_SHA\"|" "$VALUES"
+  sed -i "s|^  $SVC: *\"[^\"]*\"|  $SVC: \"$APP_SHA\"|" "$VALUES_PROD"
 done
 cd "$GITOPS"
-git add helm/cloudkitchen/values.yaml
+git add helm/cloudkitchen/values.yaml helm/cloudkitchen/values-prod.yaml
 git diff --cached --quiet || git commit -m "deploy: update imageTags to $APP_SHA"
 git push origin main
 
@@ -114,7 +117,25 @@ echo "######## 4/5  Platform + deploy app via ArgoCD ########"
 aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION"
 bash "$GITOPS/bootstrap/install.sh"
 kubectl apply -f "$GITOPS/argocd/project.yaml"
-kubectl apply -f "$GITOPS/argocd/application.yaml"
+kubectl apply -f "$GITOPS/argocd/application-dev.yaml"
+kubectl apply -f "$GITOPS/argocd/application-prod.yaml"
+
+# Monitoring safety net (final backstop): verify Grafana actually exists, not
+# just the helm release — a failed/partial release still shows in `helm list`.
+if ! kubectl -n monitoring get deploy kube-prometheus-stack-grafana >/dev/null 2>&1; then
+  echo "--- Grafana not found after install.sh — reinstalling monitoring now ---"
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
+  helm repo update >/dev/null 2>&1 || true
+  kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+  for attempt in 1 2 3; do
+    helm upgrade -i kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+      --namespace monitoring \
+      --version 65.1.1 \
+      -f "$GITOPS/monitoring/values.yaml" && break
+    echo "  reinstall attempt $attempt failed — retrying in 15s..."; sleep 15
+  done
+  kubectl -n monitoring rollout status deploy/kube-prometheus-stack-grafana --timeout=600s || true
+fi
 
 echo "######## 5/5  Wire CloudFront → EKS NLB ########"
 

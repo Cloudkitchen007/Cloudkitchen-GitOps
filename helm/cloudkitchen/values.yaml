@@ -9,10 +9,10 @@ global:
 
 
 imageTags:
-  menu: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
-  order: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
-  auth: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
-  ai: "ac467a42b4e96b5293ee3b147240ffa8e2fccedb"
+  menu: "14bab659e6b85b7eb464b829e67d107942b1913f"
+  order: "14bab659e6b85b7eb464b829e67d107942b1913f"
+  auth: "14bab659e6b85b7eb464b829e67d107942b1913f"
+  ai: "14bab659e6b85b7eb464b829e67d107942b1913f"
 
 config:
   hfModel: "mistralai/Mistral-7B-Instruct-v0.3"
