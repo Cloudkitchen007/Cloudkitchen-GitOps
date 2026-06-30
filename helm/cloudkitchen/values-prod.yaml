@@ -11,7 +11,7 @@ global:
 imageTags:
   menu: "14bab659e6b85b7eb464b829e67d107942b1913f"
   order: "14bab659e6b85b7eb464b829e67d107942b1913f"
-  auth: "irsa-sts-fix"
+  auth: "cba7f2c957ce1299b7d79bda161ad42d36f89278"
   ai: "14bab659e6b85b7eb464b829e67d107942b1913f"
 
 config:
