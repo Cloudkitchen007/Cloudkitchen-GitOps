@@ -21,6 +21,7 @@ irsa:
   aiRoleArn:    "arn:aws:iam::256603361470:role/cloudkitchen-ai-irsa"
   orderRoleArn: "arn:aws:iam::256603361470:role/cloudkitchen-order-irsa"
   esoRoleArn:   "arn:aws:iam::256603361470:role/cloudkitchen-eso-irsa"
+  authRoleArn:  "arn:aws:iam::256603361470:role/cloudkitchen-auth-irsa"
 
 eso:
   region: ap-south-1
@@ -49,6 +50,7 @@ services:
     repo: cloudkitchen-auth-repo
     port: 8001
     replicas: 1
+    serviceAccount: auth
     pathPrefixes: ["/auth"]
   - name: ai
     repo: cloudkitchen-ai-repo
